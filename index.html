@@ -1,455 +1,576 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Pocket Money Manager VIP</title>
+<script>
+  // Transaction Manager App Logic
 
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <!-- jsPDF & AutoTable -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.27/jspdf.plugin.autotable.min.js"></script>
+  // Helper to parse and save transactions in localStorage
+  function getTransactions() {
+    return JSON.parse(localStorage.getItem('transactions') || '[]');
+  }
 
-  <style>
-    /* Premium Typography & Colors */
-    @import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@700&family=Inter:wght@400;500;600&display=swap');
-    :root {
-      --bg-primary: #1a1f2b;
-      --bg-card: rgba(255,255,255,0.05);
-      --text-primary: #f5f5f7;
-      --text-secondary: #c0c0c5;
-      --accent-color: #d4af37;
-      --accent-hover: #b6912f;
-      --border-color: rgba(255,255,255,0.1);
-      --income-color: #4ade80;
-      --expense-color: #ef4444;
+  function saveTransactions(transactions) {
+    localStorage.setItem('transactions', JSON.stringify(transactions));
+  }
+
+  // Current state variables
+  let selectedTransactionIds = new Set();
+  let editTransactionId = null;
+
+  // Render Transactions List with filtering and search
+  function renderTransactions() {
+    const list = document.getElementById('transaction-list');
+    const noTransElem = document.getElementById('no-transactions');
+    const transactions = getTransactions();
+    const filterDate = document.getElementById('filter-date').value;
+    const filterCategory = document.getElementById('filter-category').value.toLowerCase();
+    const searchTerm = document.getElementById('search-input').value.toLowerCase();
+
+    list.innerHTML = '';
+
+    // Filter transactions based on date, category, and search
+    let filtered = transactions.filter(tx => {
+      // Date filter
+      if (filterDate !== 'all') {
+        const txDate = new Date(tx.date);
+        const now = new Date();
+        if (filterDate === 'week') {
+          const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+          if (txDate < weekAgo) return false;
+        } else if (filterDate === 'month') {
+          const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+          if (txDate < monthAgo) return false;
+        }
+      }
+      // Category / type filter
+      if (filterCategory !== 'all') {
+        if (filterCategory === 'income' && tx.type !== 'income') return false;
+        else if (filterCategory !== 'income' && tx.category.toLowerCase() !== filterCategory) return false;
+      }
+      // Search filter
+      if (searchTerm.length > 0) {
+        if (!tx.description.toLowerCase().includes(searchTerm)) return false;
+      }
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      noTransElem.style.display = 'block';
+      updateTotals(filtered);
+      updateSelection();
+      return;
     }
-    body {
-      background: var(--bg-primary);
-      color: var(--text-primary);
-      font-family: 'Inter', sans-serif;
-      margin: 0;
-      min-height: 100vh;
-    }
-    h1,h2,h3 { font-family:'Merriweather', serif; letter-spacing:.05em; text-transform:uppercase; }
-    /* Glass Cards */
-    .card {
-      background: var(--bg-card);
-      border-radius: 1rem;
-      padding: 1.5rem;
-      box-shadow: 0 4px 30px rgba(0,0,0,0.3), inset 0 0 0 1px var(--border-color);
-      backdrop-filter: blur(12px);
-      margin-bottom:1rem;
-    }
-    /* Buttons */
-    .btn-primary {
-      background: var(--accent-color);
-      color: var(--bg-primary);
-      border-radius:9999px;
-      padding:.75rem 1rem;
-      font-weight:600;
-      width:100%;
-      border:none;
-      transition: background .3s,transform .2s;
-      cursor:pointer;
-    }
-    .btn-primary:hover { background:var(--accent-hover); transform:scale(1.05); }
-    .btn-secondary {
-      background:transparent;
-      color: var(--text-secondary);
-      border:2px solid var(--accent-color);
-      border-radius:9999px;
-      padding:.75rem 1rem;
-      font-weight:600;
-      width:100%;
-      transition:background .3s,color .3s;
-      cursor:pointer;
-    }
-    .btn-secondary:hover { background:var(--accent-color); color:var(--bg-primary); }
-    .btn-danger {
-      background:var(--expense-color);
-      color:#fff;
-      border:none;
-      border-radius:9999px;
-      padding:.75rem 1rem;
-      font-weight:600;
-      width:100%;
-      transition:background .3s;
-      cursor:pointer;
-    }
-    .btn-danger:hover { background:#dc2626; }
-    /* Inputs */
-    .form-input {
-      background: rgba(255,255,255,0.1);
-      backdrop-filter:blur(8px);
-      border:1px solid var(--border-color);
-      border-radius:.5rem;
-      padding:.75rem 1rem;
-      width:100%;
-      color:var(--text-primary);
-      transition:border .3s,box-shadow .3s;
-    }
-    .form-input:focus {
-      border-color:var(--accent-color);
-      box-shadow:0 0 10px var(--accent-color);
-      outline:none;
-    }
-    /* Tabs */
-    .tab {
-      cursor:pointer;
-      padding:.75rem 1.5rem;
-      color:var(--text-secondary);
-      transition:color .3s,background .3s;
-    }
-    .tab-active {
-      background:var(--accent-color);
-      color:var(--bg-primary);
-      border-radius:.75rem .75rem 0 0;
-    }
-    .tab:hover { color:var(--text-primary); }
-    .tab-content { display:none; animation:fadeIn .5s ease forwards; }
-    .tab-content-active { display:block; }
-    @keyframes fadeIn {
-      from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);}
-    }
-    /* Transactions */
-    .transaction-item {
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      padding:1rem;
-      border-radius:.5rem;
-      border:1px solid var(--border-color);
-      transition:background .2s;
-      margin-bottom:.5rem;
-      background:transparent;
-    }
-    .transaction-item:hover { background: rgba(212,175,55,0.06); }
-    .transaction-item.selected {
-      border-color: var(--accent-color);
-      background: rgba(212,175,55,0.1);
-    }
-    .transaction-checkbox, .select-all-checkbox {
-      width:1.25rem;height:1.25rem;accent-color:var(--accent-color);
-    }
-    /* Multi-delete */
-    .multiple-delete-controls {
-      display:none;
-      background:var(--bg-card);
-      border:1px solid var(--border-color);
-      border-radius:.5rem;
-      padding:1rem;
-      margin-bottom:1rem;
-      align-items:center;
-      justify-content:space-between;
-      flex-wrap:wrap;
-    }
-    .multiple-delete-controls.active { display:flex; }
-    .selection-info { color:var(--text-secondary);font-size:.875rem; }
-    /* Scrollbar */
-    ::-webkit-scrollbar { width:8px; }
-    ::-webkit-scrollbar-thumb { background:var(--border-color);border-radius:4px; }
-    ::-webkit-scrollbar-track { background:transparent; }
-  </style>
-</head>
-<body data-theme="light">
-  <div class="container mx-auto p-6 max-w-7xl">
-    <!-- Header -->
-    <header class="relative text-center mb-8">
-      <h1 class="text-4xl font-bold mb-1">Pocket Money Manager VIP</h1>
-      <p class="text-gray-300">Every feature. Elite experience.</p>
-      <nav class="flex justify-center space-x-6 border-b border-gray-600 mt-6">
-        <div id="tab-transactions" class="tab tab-active">Transactions</div>
-        <div id="tab-dashboard"    class="tab">Dashboard</div>
-        <div id="tab-budget"       class="tab">Budget</div>
-        <div id="tab-goals"        class="tab">Goals</div>
-        <div id="tab-insights"     class="tab">Insights</div>
-      </nav>
-      <div class="absolute top-0 right-0 flex items-center gap-3">
-        <select id="theme-switcher" class="form-input rounded-md p-2" style="width:auto;">
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-          <option value="mint">Mint</option>
-          <option value="sunset">Sunset</option>
-          <option value="dynamic">Dynamic</option>
-        </select>
-        <button id="refresh-icon-btn" class="btn-secondary" title="Soft Refresh (R)">↻</button>
-        <div class="relative">
-          <button id="new-task-btn" class="btn-secondary">New Task ▾</button>
-          <div id="new-task-menu" class="new-task-menu card p-3 hidden">
-            <button id="soft-reset-btn"   class="btn-secondary">🔄 Soft Reset UI</button>
-            <button id="hard-refresh-btn" class="btn-secondary">⟳ Hard Refresh Page</button>
-            <button id="clear-all-btn"    class="btn-primary">🗑️ Clear All Data</button>
-          </div>
+
+    noTransElem.style.display = 'none';
+
+    filtered.forEach((tx, index) => {
+      const li = document.createElement('li');
+      li.className = 'transaction-item';
+
+      // Checkbox for multi-select
+      const checked = selectedTransactionIds.has(index) ? 'checked' : '';
+      li.innerHTML = `
+        <input type="checkbox" class="transaction-checkbox" data-index="${index}" ${checked} />
+        <div class="flex-grow pl-3">
+          <strong>${tx.description}</strong> <small>(${new Date(tx.date).toLocaleDateString()})</small><br/>
+          <small class="text-gray-400">${tx.category} - ${tx.recurring !== 'none' ? `Recurring: ${tx.recurring}` : ''}</small>
         </div>
-      </div>
-      <p class="text-xs text-gray-500 mt-2">
-        Shortcuts: <kbd>R</kbd> Reset UI • <kbd>Shift+R</kbd> Hard Refresh •
-        <kbd>Del</kbd> Delete Selected • <kbd>Ctrl+I</kbd> Import CSV
-      </p>
-    </header>
-
-    <main>
-      <!-- Transactions Tab -->
-      <section id="content-transactions" class="tab-content tab-content-active">
-        <!-- Multi-Delete Controls -->
-        <div id="multiple-delete-controls" class="multiple-delete-controls">
-          <div class="selection-info">
-            <span id="selected-count">0</span> selected
-          </div>
-          <div class="flex gap-2">
-            <button id="select-all-btn" class="btn-secondary w-auto">Select All</button>
-            <button id="deselect-all-btn" class="btn-secondary w-auto">Deselect All</button>
-            <button id="delete-selected-btn" class="btn-danger w-auto">Delete Selected</button>
-          </div>
+        <div class="${tx.type === 'income' ? 'text-green-400' : 'text-red-400'} font-semibold text-right w-28">
+          ${tx.type === 'income' ? '+' : '-'}₹${Number(tx.amount).toFixed(2)}
         </div>
+        <button class="btn-secondary ml-2 edit-btn" data-index="${index}" style="height:32px; align-self:center; flex-shrink:0;">Edit</button>
+      `;
+      list.appendChild(li);
+    });
 
-        <!-- Select All Checkbox -->
-        <div class="flex items-center mb-3">
-          <input type="checkbox" id="select-all-checkbox" class="select-all-checkbox"/>
-          <label for="select-all-checkbox" class="ml-2 select-none">Select All Transactions</label>
-        </div>
+    updateTotals(filtered);
+    updateSelection();
 
-        <!-- Summary Cards -->
-        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <div class="card flex flex-col items-center">
-            <h2 class="font-semibold text-gray-300">Total Balance</h2>
-            <p id="balance" class="text-indigo-400 text-3xl font-bold mt-2">₹0.00</p>
-          </div>
-          <div class="card flex flex-col items-center">
-            <h2 class="font-semibold text-gray-300">Total Income</h2>
-            <p id="income" class="text-green-400 text-3xl font-bold mt-2">₹0.00</p>
-          </div>
-          <div class="card flex flex-col items-center">
-            <h2 class="font-semibold text-gray-300">Total Expense</h2>
-            <p id="expense" class="text-red-400 text-3xl font-bold mt-2">₹0.00</p>
-          </div>
-        </section>
+    // Attach checkbox listeners
+    document.querySelectorAll('.transaction-checkbox').forEach(chk => {
+      chk.addEventListener('change', function() {
+        const idx = Number(this.dataset.index);
+        if (this.checked) selectedTransactionIds.add(idx);
+        else selectedTransactionIds.delete(idx);
+        updateSelection();
+      });
+    });
 
-        <!-- Add/Edit Form -->
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
-          <div class="lg:col-span-2">
-            <div class="card p-6">
-              <h2 id="form-title" class="text-2xl font-bold mb-4">Add / Edit Transaction</h2>
-              <div class="flex flex-wrap gap-2 mb-4 quick-buttons"></div>
-              <form id="transaction-form" novalidate>
-                <input type="hidden" id="transaction-id"/>
-                <div class="mb-4">
-                  <label>Description</label>
-                  <input id="description" class="form-input" placeholder="e.g., Monthly Allowance" required/>
-                  <p id="desc-error" class="error-msg" hidden></p>
-                </div>
-                <div class="mb-4">
-                  <label>Amount</label>
-                  <input id="amount" type="number" class="form-input" placeholder="Enter amount" min="0.01" step="0.01" required/>
-                  <p id="amount-error" class="error-msg" hidden></p>
-                </div>
-                <div class="mb-4">
-                  <label>Date</label>
-                  <input id="date" type="date" class="form-input" required/>
-                  <p id="date-error" class="error-msg" hidden></p>
-                </div>
-                <div class="mb-4">
-                  <label>Type</label>
-                  <select id="type" class="form-input">
-                    <option value="income">Income</option>
-                    <option value="expense">Expense</option>
-                  </select>
-                </div>
-                <div class="mb-4" id="category-wrapper">
-                  <label>Category</label>
-                  <select id="category" class="form-input">
-                    <option>Food</option><option>Travel</option><option>Entertainment</option>
-                    <option>Bills</option><option>Other</option>
-                  </select>
-                </div>
-                <div class="mb-4">
-                  <label>Recurring</label>
-                  <select id="recurring" class="form-input">
-                    <option value="none">None</option>
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                </div>
-                <div class="flex gap-4 mb-4">
-                  <button type="submit" id="submit-btn" class="btn-primary">Add Transaction</button>
-                  <button type="button" id="cancel-edit-btn" class="btn-secondary hidden">Cancel</button>
-                </div>
-              </form>
-              <div class="flex gap-2 flex-wrap">
-                <button id="import-csv-btn" class="btn-secondary w-auto">Import CSV</button>
-                <input type="file" id="csv-file-input" accept=".csv" class="hidden"/>
-                <button id="backup-data-btn" class="btn-secondary w-auto">Backup JSON</button>
-                <input type="file" id="backup-file-input" accept="application/json" class="hidden"/>
-                <button id="export-btn" class="btn-secondary w-auto">Export CSV</button>
-              </div>
-            </div>
-          </div>
-          <div class="lg:col-span-3">
-            <div class="card p-6">
-              <h2 class="text-2xl font-bold mb-4 text-gray-100">Expense Breakdown</h2>
-              <canvas id="expense-chart" style="max-height:300px"></canvas>
-            </div>
-          </div>
-        </div>
+    // Attach edit button listeners
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const idx = Number(this.dataset.index);
+        startEditTransaction(idx);
+      });
+    });
+  }
 
-        <!-- Transaction History -->
-        <div class="card p-6 mt-6">
-          <div class="flex justify-between mb-4 items-center">
-            <h2 class="text-2xl font-bold">Transaction History</h2>
-            <div class="flex gap-2">
-              <select id="filter-date" class="form-input w-auto">
-                <option value="all">All Time</option>
-                <option value="week">This Week</option>
-                <option value="month">This Month</option>
-              </select>
-              <select id="filter-category" class="form-input w-auto">
-                <option value="all">All Categories</option>
-                <option value="income">Income</option><option>Food</option><option>Travel</option>
-                <option>Entertainment</option><option>Bills</option><option>Other</option>
-              </select>
-              <input id="search-input" type="search" class="form-input w-auto" placeholder="Search..."/>
-            </div>
-          </div>
-          <ul id="transaction-list" class="max-h-[450px] overflow-y-auto space-y-2" aria-live="polite" aria-relevant="additions removals">
-            <li id="no-transactions" class="text-center text-gray-600 py-4">No transactions yet.</li>
-          </ul>
-        </div>
-      </section>
+  // Update selection info and multi-delete controls
+  function updateSelection() {
+    const controls = document.getElementById('multiple-delete-controls');
+    const selectedCountElem = document.getElementById('selected-count');
+    const selectedCount = selectedTransactionIds.size;
 
-      <!-- Dashboard -->
-      <section id="content-dashboard" class="tab-content p-6">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div class="card p-6">
-            <h2 class="text-xl font-bold mb-4 text-gray-100">Monthly Income vs Expense</h2>
-            <canvas id="trend-chart" height="300"></canvas>
-          </div>
-          <div class="card p-6">
-            <h2 class="text-xl font-bold mb-4 text-gray-100">Category Spending Over Time</h2>
-            <canvas id="category-chart" height="300"></canvas>
-          </div>
-        </div>
-      </section>
+    if (selectedCount > 0) {
+      controls.classList.add('active');
+      selectedCountElem.textContent = selectedCount;
+    } else {
+      controls.classList.remove('active');
+      selectedCountElem.textContent = 0;
+    }
 
-      <!-- Budget -->
-      <section id="content-budget" class="tab-content p-6">
-        <div class="flex justify-between mb-4">
-          <h2 class="text-2xl font-bold text-gray-100">Budget Goals</h2>
-          <button id="budget-settings-btn" class="btn-secondary w-auto">⚙️ Settings</button>
-        </div>
-        <div id="budget-container"></div>
-        <!-- Budget Settings Modal -->
-        <div id="budget-settings-modal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 class="text-xl font-semibold mb-4">Budget Settings</h3>
-            <form id="budget-settings-form" class="space-y-4">
-              <div>
-                <label>Period</label>
-                <select id="budget-period-type" class="form-input w-full">
-                  <option value="monthly">Monthly</option>
-                  <option value="weekly">Weekly</option>
-                </select>
-              </div>
-              <div class="flex items-center">
-                <input type="checkbox" id="budget-rollover" class="mr-2"/>
-                <label for="budget-rollover">Enable Rollover</label>
-              </div>
-              <div id="budget-inputs"></div>
-              <div class="flex justify-end gap-2">
-                <button type="button" id="budget-cancel-btn" class="btn-secondary">Cancel</button>
-                <button type="submit" class="btn-primary">Save</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
+    // Update select-all checkbox in header
+    const allCheckbox = document.getElementById('select-all-checkbox');
+    const transactions = getTransactions();
+    const visibleIndexes = Array.from(document.querySelectorAll('.transaction-checkbox')).map(chk => Number(chk.dataset.index));
+    if (visibleIndexes.length && visibleIndexes.every(idx => selectedTransactionIds.has(idx))) {
+      allCheckbox.checked = true;
+      allCheckbox.indeterminate = false;
+    } else if (visibleIndexes.some(idx => selectedTransactionIds.has(idx))) {
+      allCheckbox.checked = false;
+      allCheckbox.indeterminate = true;
+    } else {
+      allCheckbox.checked = false;
+      allCheckbox.indeterminate = false;
+    }
+  }
 
-      <!-- Goals -->
-      <section id="content-goals" class="tab-content p-6">
-        <div class="flex justify-between mb-4 text-gray-100">
-          <h2 class="text-2xl font-bold">Savings Goal</h2>
-          <button id="goal-settings-btn" class="btn-secondary w-auto">Set Goal</button>
-          <button id="export-pdf-btn" class="btn-primary w-auto">Download PDF</button>
-        </div>
-        <div id="goal-tracker"></div>
-        <!-- Goal Modal -->
-        <div id="goal-modal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50">
-          <div class="bg-white rounded-lg p-6 w-full max-w-sm">
-            <h3 class="text-xl font-semibold mb-4">Set Savings Goal</h3>
-            <form id="goal-form" class="space-y-4">
-              <div>
-                <label>Goal Amount (₹)</label>
-                <input id="goal-amount" type="number" class="form-input w-full" min="0" step="0.01" required/>
-              </div>
-              <div class="flex justify-end gap-2">
-                <button type="button" id="goal-cancel-btn" class="btn-secondary">Cancel</button>
-                <button type="submit" class="btn-primary">Save</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </section>
+  // Update totals for given transaction list or entire list
+  function updateTotals(transactionList) {
+    const transactions = transactionList || getTransactions();
+    let income = 0, expense = 0;
+    transactions.forEach(tx => {
+      if (tx.type === 'income') income += Number(tx.amount);
+      else expense += Number(tx.amount);
+    });
+    const balance = income - expense;
+    document.getElementById('income').textContent = `₹${income.toFixed(2)}`;
+    document.getElementById('expense').textContent = `₹${expense.toFixed(2)}`;
+    document.getElementById('balance').textContent = `₹${balance.toFixed(2)}`;
 
-      <!-- Insights -->
-      <section id="content-insights" class="tab-content p-6">
-        <div class="card mb-6 bg-gradient-to-tr from-purple-700 to-indigo-800 text-white">
-          <h2 class="text-xl font-bold mb-4">Smart Insights & Automation</h2>
-          <div id="suggestions-panel" class="hidden p-3 rounded mb-4 bg-purple-800">
-            <h3 class="font-semibold mb-2">Category Suggestions</h3>
-            <div id="suggestions-list"></div>
-          </div>
-          <div id="anomaly-panel" class="hidden p-3 rounded mb-4 bg-orange-700">
-            <h3 class="font-semibold mb-2">🚨 Anomaly Detected</h3>
-            <div id="anomaly-list"></div>
-          </div>
-          <div id="prediction-panel" class="p-3 rounded mb-4 bg-green-700">
-            <h3 class="font-semibold mb-2">📊 Forecast</h3>
-            <div id="prediction-content"></div>
-          </div>
-          <div id="reminders-panel" class="p-3 rounded bg-indigo-700">
-            <h3 class="font-semibold mb-2">📅 Upcoming Bills</h3>
-            <div id="reminders-list"></div>
-            <button id="add-reminder-btn" class="btn-secondary mt-2 w-auto">Add Reminder</button>
-          </div>
-          <!-- Reminder Modal -->
-          <div id="reminder-modal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex items-center justify-center z-50">
-            <div class="bg-white rounded-lg p-6 w-full max-w-sm">
-              <h3 class="text-xl font-semibold mb-4">Add Bill Reminder</h3>
-              <form id="reminder-form" class="space-y-4">
-                <div><label>Bill Name</label><input id="bill-name" class="form-input w-full" required/></div>
-                <div><label>Amount (₹)</label><input id="bill-amount" type="number" class="form-input w-full" min="0" step="0.01" required/></div>
-                <div><label>Due Day (1–31)</label><input id="bill-date" type="number" class="form-input w-full" min="1" max="31" required/></div>
-                <div><label>Category</label><select id="bill-category" class="form-input w-full"><option>Bills</option><option>Other</option></select></div>
-                <div class="flex justify-end gap-2">
-                  <button type="button" id="reminder-cancel-btn" class="btn-secondary">Cancel</button>
-                  <button type="submit" class="btn-primary">Save</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
+    // Update Chart
+    renderExpenseChart(transactions.filter(tx => tx.type === 'expense'));
+  }
 
-  <script>
-    // Full combined JavaScript logic for:
-    // - Transaction CRUD, multi-delete, filters
-    // - Theming, refresh menu, shortcuts
-    // - Analytics charts
-    // - Budget settings & rollover
-    // - Savings goal & PDF export
-    // - CSV import & JSON backup/restore
-    // - Auto-categorization, anomaly detection, forecasting
-    // - Smart recurring rules & bill reminders
+  // Clear form and reset editing state
+  function resetForm() {
+    const form = document.getElementById('transaction-form');
+    form.reset();
+    editTransactionId = null;
+    document.getElementById('form-title').textContent = 'Add / Edit Transaction';
+    document.getElementById('submit-btn').textContent = 'Add Transaction';
+    document.getElementById('cancel-edit-btn').classList.add('hidden');
+  }
 
-    // The complete JS code is exactly as provided stepwise above.
-    // For brevity, please reuse the combined JS from previous steps here.
-    // Ensure that your final code includes all event listeners and functions exactly.
-  </script>
-</body>
-</html>
+  // Start editing a transaction
+  function startEditTransaction(idx) {
+    const transactions = getTransactions();
+    const tx = transactions[idx];
+    if (!tx) return;
+
+    document.getElementById('transaction-id').value = idx;
+    document.getElementById('description').value = tx.description;
+    document.getElementById('amount').value = tx.amount;
+    document.getElementById('date').value = tx.date;
+    document.getElementById('type').value = tx.type;
+    document.getElementById('category').value = tx.category || 'Other';
+    document.getElementById('recurring').value = tx.recurring || 'none';
+
+    editTransactionId = idx;
+    document.getElementById('form-title').textContent = 'Edit Transaction';
+    document.getElementById('submit-btn').textContent = 'Save Changes';
+    document.getElementById('cancel-edit-btn').classList.remove('hidden');
+  }
+
+  // Delete selected transactions
+  function deleteSelected() {
+    if (!confirm('Delete selected transactions? This cannot be undone.')) return;
+    let transactions = getTransactions();
+    // Convert set to sorted array descending to avoid index shift removal problem
+    const indexesToRemove = Array.from(selectedTransactionIds).sort((a,b) => b - a);
+    indexesToRemove.forEach(idx => {
+      if (idx >= 0 && idx < transactions.length) {
+        transactions.splice(idx, 1);
+      }
+    });
+    selectedTransactionIds.clear();
+    saveTransactions(transactions);
+    renderTransactions();
+  }
+
+  // Select all visible transactions
+  function selectAllVisible() {
+    selectedTransactionIds.clear();
+    document.querySelectorAll('.transaction-checkbox').forEach(chk => {
+      chk.checked = true;
+      selectedTransactionIds.add(Number(chk.dataset.index));
+    });
+    updateSelection();
+  }
+
+  // Deselect all
+  function deselectAll() {
+    selectedTransactionIds.clear();
+    document.querySelectorAll('.transaction-checkbox').forEach(chk => chk.checked = false);
+    updateSelection();
+  }
+
+  // Tab switching logic
+  function initTabs() {
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Remove active from all tabs
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('tab-active'));
+        tab.classList.add('tab-active');
+
+        // Show matching content section, hide others
+        const targetId = 'content-' + tab.id.split('tab-')[1];
+        document.querySelectorAll('.tab-content').forEach(content => {
+          content.id === targetId ? content.classList.add('tab-content-active') : content.classList.remove('tab-content-active');
+        });
+      });
+    });
+  }
+
+  // Theme switching
+  function initThemeSwitcher() {
+    const themeSwitcher = document.getElementById('theme-switcher');
+    const themes = {
+      light: {
+        '--bg-primary': '#1a1f2b',
+        '--bg-card': 'rgba(255,255,255,0.05)',
+        '--text-primary': '#f5f5f7',
+        '--text-secondary': '#c0c0c5',
+        '--accent-color': '#d4af37',
+        '--accent-hover': '#b6912f',
+        '--border-color': 'rgba(255,255,255,0.1)',
+        '--income-color': '#4ade80',
+        '--expense-color': '#ef4444'
+      },
+      dark: {
+        '--bg-primary': '#0f1823',
+        '--bg-card': 'rgba(255,255,255,0.1)',
+        '--text-primary': '#e0e0e0',
+        '--text-secondary': '#999999',
+        '--accent-color': '#d4af37',
+        '--accent-hover': '#b6912f',
+        '--border-color': 'rgba(255,255,255,0.2)',
+        '--income-color': '#22c55e',
+        '--expense-color': '#ef4444'
+      },
+      mint: {
+        '--bg-primary': '#1c3d3a',
+        '--bg-card': 'rgba(223,240,233,0.15)',
+        '--text-primary': '#daf3e0',
+        '--text-secondary': '#a3c9b1',
+        '--accent-color': '#47b881',
+        '--accent-hover': '#379f62',
+        '--border-color': 'rgba(223,240,233,0.31)',
+        '--income-color': '#68d391',
+        '--expense-color': '#f87171'
+      },
+      sunset: {
+        '--bg-primary': '#321414',
+        '--bg-card': 'rgba(255,229,229,0.06)',
+        '--text-primary': '#ffe3e3',
+        '--text-secondary': '#c78989',
+        '--accent-color': '#e08133',
+        '--accent-hover': '#bb6626',
+        '--border-color': 'rgba(255,99,71,0.15)',
+        '--income-color': '#4ade80',
+        '--expense-color': '#f87171'
+      },
+      dynamic: {
+        // Could implement dynamic cycling colors or system theme detection here
+      }
+    };
+
+    themeSwitcher.addEventListener('change', () => {
+      const selected = themeSwitcher.value;
+      if (themes[selected]) {
+        Object.entries(themes[selected]).forEach(([prop, val]) => {
+          document.documentElement.style.setProperty(prop, val);
+        });
+      }
+    });
+  }
+
+  // CSV export
+  function exportCSV() {
+    const transactions = getTransactions();
+    if (transactions.length === 0) {
+      alert('No transactions to export');
+      return;
+    }
+    const headers = ['Description', 'Amount', 'Date', 'Type', 'Category', 'Recurring'];
+    const rows = transactions.map(tx => [tx.description, tx.amount, tx.date, tx.type, tx.category || '', tx.recurring || '']);
+    let csvContent = headers.join(',') + '\n' + rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'transactions.csv';
+    a.click();
+  }
+
+  // CSV import
+  function importCSV(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      const lines = text.trim().split('\n');
+      if (lines.length < 2) {
+        alert('CSV file is empty or invalid.');
+        return;
+      }
+      const [headerLine, ...rows] = lines;
+      const headers = headerLine.split(',').map(h => h.replace(/"/g, '').toLowerCase());
+      const expected = ['description', 'amount', 'date', 'type', 'category', 'recurring'];
+
+      // Validate headers
+      if (!expected.every(h => headers.includes(h))) {
+        alert('Invalid CSV headers.');
+        return;
+      }
+
+      const transactions = getTransactions();
+
+      rows.forEach(row => {
+        const values = row.split(',').map(v => v.replace(/"/g, ''));
+        const tx = {};
+        headers.forEach((h, i) => { tx[h] = values[i] || ''; });
+        // Basic validation
+        if (!tx.description || isNaN(parseFloat(tx.amount)) || !tx.date) return;
+        transactions.push({
+          description: tx.description,
+          amount: parseFloat(tx.amount),
+          date: tx.date,
+          type: tx.type || 'expense',
+          category: tx.category || 'Other',
+          recurring: tx.recurring || 'none'
+        });
+      });
+
+      saveTransactions(transactions);
+      renderTransactions();
+      alert('Import complete.');
+    };
+    reader.readAsText(file);
+  }
+
+  // JSON backup
+  function backupJSON() {
+    const transactions = getTransactions();
+    if (transactions.length === 0) {
+      alert('No transactions to backup');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(transactions, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'transactions_backup.json';
+    a.click();
+  }
+
+  // JSON restore
+  function restoreJSON(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!Array.isArray(data)) throw new Error('Invalid JSON format');
+        // Simple structure checking
+        if (!data.every(tx => tx.description && 'amount' in tx && tx.date && tx.type)) {
+          alert('JSON content invalid');
+          return;
+        }
+        saveTransactions(data);
+        renderTransactions();
+        alert('Data restored successfully');
+      } catch (err) {
+        alert('Error parsing JSON file: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // Expense pie chart rendering using Chart.js
+  let expenseChart = null;
+  function renderExpenseChart(expenses) {
+    const ctx = document.getElementById('expense-chart').getContext('2d');
+    if (expenseChart) {
+      expenseChart.destroy();
+    }
+    const categories = {};
+    expenses.forEach(exp => {
+      categories[exp.category] = (categories[exp.category] || 0) + Number(exp.amount);
+    });
+    const labels = Object.keys(categories);
+    const data = Object.values(categories);
+
+    expenseChart = new Chart(ctx, {
+      type: 'pie',
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: [
+            '#ef4444', '#f97316', '#facc15', '#4ade80', '#22d3ee', '#818cf8', '#a855f7'
+          ],
+          hoverOffset: 20
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { color: 'white' }
+          }
+        }
+      }
+    });
+  }
+
+  // Event and DOM initialization
+  function init() {
+    // Initial render
+    renderTransactions();
+
+    // Tabs
+    initTabs();
+
+    // Theme switcher
+    initThemeSwitcher();
+
+    const form = document.getElementById('transaction-form');
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      const desc = document.getElementById('description').value.trim();
+      const amt = parseFloat(document.getElementById('amount').value);
+      const dt = document.getElementById('date').value;
+      const type = document.getElementById('type').value;
+      const category = document.getElementById('category').value;
+      const recurring = document.getElementById('recurring').value;
+
+      if (!desc) {
+        alert('Please enter a description.');
+        return;
+      }
+      if (isNaN(amt) || amt <= 0) {
+        alert('Please enter a valid amount greater than zero.');
+        return;
+      }
+      if (!dt) {
+        alert('Please enter a date.');
+        return;
+      }
+
+      let transactions = getTransactions();
+
+      if (editTransactionId !== null) {
+        // Edit
+        transactions[editTransactionId] = { description: desc, amount: amt, date: dt, type, category, recurring };
+        alert('Transaction updated.');
+      } else {
+        transactions.push({ description: desc, amount: amt, date: dt, type, category, recurring });
+        alert('Transaction added.');
+      }
+
+      saveTransactions(transactions);
+      renderTransactions();
+      resetForm();
+    });
+
+    document.getElementById('cancel-edit-btn').addEventListener('click', () => {
+      resetForm();
+    });
+
+    document.getElementById('delete-selected-btn').addEventListener('click', () => {
+      deleteSelected();
+    });
+
+    document.getElementById('select-all-btn').addEventListener('click', () => {
+      selectAllVisible();
+    });
+
+    document.getElementById('deselect-all-btn').addEventListener('click', () => {
+      deselectAll();
+    });
+
+    document.getElementById('select-all-checkbox').addEventListener('change', function() {
+      if (this.checked) selectAllVisible();
+      else deselectAll();
+    });
+
+    document.getElementById('filter-date').addEventListener('change', renderTransactions);
+    document.getElementById('filter-category').addEventListener('change', renderTransactions);
+    document.getElementById('search-input').addEventListener('input', renderTransactions);
+
+    // CSV import/export
+    document.getElementById('import-csv-btn').addEventListener('click', () => {
+      document.getElementById('csv-file-input').click();
+    });
+    document.getElementById('csv-file-input').addEventListener('change', (e) => {
+      importCSV(e.target.files[0]);
+      e.target.value = '';
+    });
+
+    document.getElementById('export-btn').addEventListener('click', () => {
+      exportCSV();
+    });
+
+    // JSON backup/restore
+    document.getElementById('backup-data-btn').addEventListener('click', () => {
+      backupJSON();
+    });
+    document.getElementById('backup-file-input').addEventListener('change', e => {
+      restoreJSON(e.target.files[0]);
+      e.target.value = '';
+    });
+
+    // Extra controls menu toggling
+    const newTaskBtn = document.getElementById('new-task-btn');
+    const newTaskMenu = document.getElementById('new-task-menu');
+    newTaskBtn.addEventListener('click', () => {
+      newTaskMenu.classList.toggle('hidden');
+    });
+
+    document.getElementById('soft-reset-btn').addEventListener('click', () => {
+      localStorage.removeItem('transactions');
+      location.reload();
+    });
+
+    document.getElementById('hard-refresh-btn').addEventListener('click', () => {
+      localStorage.clear();
+      location.reload(true);
+    });
+
+    document.getElementById('clear-all-btn').addEventListener('click', () => {
+      if (confirm('Clear all transaction data? This cannot be undone.')) {
+        localStorage.removeItem('transactions');
+        renderTransactions();
+        resetForm();
+      }
+    });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'R' && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        resetForm();
+      } else if (e.key === 'R' && e.shiftKey) {
+        e.preventDefault();
+        location.reload(true);
+      } else if (e.key === 'Delete') {
+        if (selectedTransactionIds.size > 0) {
+          deleteSelected();
+        }
+      } else if (e.key.toLowerCase() === 'i' && e.ctrlKey) {
+        e.preventDefault();
+        document.getElementById('csv-file-input').click();
+      }
+    });
+  }
+
+  // Initialize on document ready
+  document.addEventListener('DOMContentLoaded', init);
+</script>
