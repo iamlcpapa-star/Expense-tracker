@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pocket Money Manager </title>
+  <title>Pocket Money Manager - Enhanced</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -136,6 +136,24 @@
       outline: none;
     }
 
+    .btn-danger {
+      background-color: var(--expense-color);
+      color: white;
+      transition: background-color 0.3s ease;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      width: 100%;
+    }
+
+    .btn-danger:hover,
+    .btn-danger:focus {
+      background-color: #dc2626;
+      outline: none;
+    }
+
     .form-input {
       border-radius: 0.5rem;
       border: 1px solid var(--border-color);
@@ -169,6 +187,11 @@
     .transaction-item:focus-within {
       background-color: var(--bg-primary);
       outline: none;
+    }
+
+    .transaction-item.selected {
+      border-color: var(--accent-color);
+      background-color: rgba(79, 70, 229, 0.1);
     }
 
     .text-green { color: var(--income-color); }
@@ -245,6 +268,55 @@
       padding: 0.5rem 0.75rem;
       font-size: 1.2rem;
     }
+
+    /* Multiple delete controls */
+    .multiple-delete-controls {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .multiple-delete-controls.active {
+      display: flex;
+    }
+
+    .selection-info {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+    }
+
+    .delete-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .delete-actions button {
+      width: auto;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+    }
+
+    /* Checkbox styling */
+    .transaction-checkbox {
+      width: 1.25rem;
+      height: 1.25rem;
+      margin-right: 0.75rem;
+      accent-color: var(--accent-color);
+    }
+
+    .select-all-checkbox {
+      width: 1.25rem;
+      height: 1.25rem;
+      accent-color: var(--accent-color);
+    }
   </style>
 </head>
 
@@ -284,7 +356,7 @@
 
       <!-- Keyboard Shortcuts Info -->
       <div class="text-xs text-gray-500 mt-2">
-        Keyboard shortcuts: <kbd>R</kbd> = Soft Reset, <kbd>Shift+R</kbd> = Hard Refresh
+        Keyboard shortcuts: <kbd>R</kbd> = Soft Reset, <kbd>Shift+R</kbd> = Hard Refresh, <kbd>Del</kbd> = Delete Selected
       </div>
     </header>
 
@@ -428,6 +500,24 @@
             </div>
           </div>
 
+          <!-- Multiple Delete Controls -->
+          <div id="multiple-delete-controls" class="multiple-delete-controls">
+            <div class="selection-info">
+              <span id="selected-count">0</span> transactions selected
+            </div>
+            <div class="delete-actions">
+              <button id="select-all-btn" class="btn-secondary">Select All</button>
+              <button id="deselect-all-btn" class="btn-secondary">Deselect All</button>
+              <button id="delete-selected-btn" class="btn-danger">Delete Selected</button>
+            </div>
+          </div>
+
+          <!-- Select All Checkbox -->
+          <div class="flex items-center mb-3">
+            <input type="checkbox" id="select-all-checkbox" class="select-all-checkbox" />
+            <label for="select-all-checkbox" class="ml-2 text-sm font-medium text-gray-700">Select All Transactions</label>
+          </div>
+
           <!-- Transaction List -->
           <ul id="transaction-list" class="space-y-3">
             <li id="no-transactions" class="text-center text-gray-600 py-4">No transactions yet.</li>
@@ -478,6 +568,14 @@
       const themeSwitcher = document.getElementById("theme-switcher");
       const quickButtons = document.querySelectorAll(".quick-buttons button");
 
+      // Multiple delete elements
+      const multipleDeleteControls = document.getElementById("multiple-delete-controls");
+      const selectedCountEl = document.getElementById("selected-count");
+      const selectAllBtn = document.getElementById("select-all-btn");
+      const deselectAllBtn = document.getElementById("deselect-all-btn");
+      const deleteSelectedBtn = document.getElementById("delete-selected-btn");
+      const selectAllCheckbox = document.getElementById("select-all-checkbox");
+
       // Error elements
       const descError = document.getElementById("desc-error");
       const amountError = document.getElementById("amount-error");
@@ -492,6 +590,9 @@
         Bills: 5000,
         Other: 1000,
       };
+
+      // Track selected transactions
+      let selectedTransactions = new Set();
 
       // Set default date to today
       dateInput.valueAsDate = new Date();
@@ -508,6 +609,101 @@
           el.textContent = "";
         });
       };
+
+      // MULTIPLE DELETE FUNCTIONS
+
+      // Update selected count and controls visibility
+      function updateMultipleDeleteControls() {
+        const count = selectedTransactions.size;
+        selectedCountEl.textContent = count;
+        
+        if (count > 0) {
+          multipleDeleteControls.classList.add("active");
+        } else {
+          multipleDeleteControls.classList.remove("active");
+        }
+
+        // Update select all checkbox state
+        const currentTransactions = getFilteredTransactions();
+        const allSelected = currentTransactions.length > 0 && 
+          currentTransactions.every(t => selectedTransactions.has(t.id));
+        const someSelected = currentTransactions.some(t => selectedTransactions.has(t.id));
+        
+        selectAllCheckbox.checked = allSelected;
+        selectAllCheckbox.indeterminate = someSelected && !allSelected;
+      }
+
+      // Handle individual transaction selection
+      function toggleTransactionSelection(transactionId, isSelected) {
+        if (isSelected) {
+          selectedTransactions.add(transactionId);
+        } else {
+          selectedTransactions.delete(transactionId);
+        }
+        updateMultipleDeleteControls();
+        updateTransactionItemStyles();
+      }
+
+      // Select all visible transactions
+      function selectAllTransactions() {
+        const currentTransactions = getFilteredTransactions();
+        currentTransactions.forEach(t => selectedTransactions.add(t.id));
+        updateMultipleDeleteControls();
+        updateTransactionItemStyles();
+      }
+
+      // Deselect all transactions
+      function deselectAllTransactions() {
+        selectedTransactions.clear();
+        updateMultipleDeleteControls();
+        updateTransactionItemStyles();
+      }
+
+      // Delete selected transactions
+      function deleteSelectedTransactions() {
+        if (selectedTransactions.size === 0) return;
+        
+        const count = selectedTransactions.size;
+        if (!confirm(`Are you sure you want to delete ${count} selected transaction${count > 1 ? 's' : ''}?`)) return;
+        
+        transactions = transactions.filter(t => !selectedTransactions.has(t.id));
+        selectedTransactions.clear();
+        updateMultipleDeleteControls();
+        updateUI();
+        showMessage(`${count} transaction${count > 1 ? 's' : ''} deleted successfully!`, "success");
+      }
+
+      // Update visual styles for selected items
+      function updateTransactionItemStyles() {
+        const items = document.querySelectorAll('.transaction-item');
+        items.forEach(item => {
+          const checkbox = item.querySelector('.transaction-checkbox');
+          if (checkbox) {
+            if (selectedTransactions.has(checkbox.dataset.id)) {
+              item.classList.add('selected');
+              checkbox.checked = true;
+            } else {
+              item.classList.remove('selected');
+              checkbox.checked = false;
+            }
+          }
+        });
+      }
+
+      // Setup multiple delete event listeners
+      function setupMultipleDeleteEvents() {
+        selectAllBtn.addEventListener("click", selectAllTransactions);
+        deselectAllBtn.addEventListener("click", deselectAllTransactions);
+        deleteSelectedBtn.addEventListener("click", deleteSelectedTransactions);
+        
+        selectAllCheckbox.addEventListener("change", (e) => {
+          if (e.target.checked) {
+            selectAllTransactions();
+          } else {
+            deselectAllTransactions();
+          }
+        });
+      }
 
       // NEW TASK / REFRESH FUNCTIONS
       
@@ -530,6 +726,9 @@
         // Reset type/category visibility
         typeInput.value = "income";
         toggleCategory();
+        
+        // Clear selections
+        deselectAllTransactions();
         
         // Re-render from saved data
         updateUI();
@@ -598,7 +797,7 @@
         document.getElementById("refresh-icon-btn").addEventListener("click", softResetUI);
       }
 
-      // Keyboard shortcuts: R = soft reset, Shift+R = hard refresh
+      // Keyboard shortcuts: R = soft reset, Shift+R = hard refresh, Del = delete selected
       function setupRefreshShortcuts() {
         document.addEventListener("keydown", (e) => {
           // Only trigger if not typing in input fields
@@ -611,6 +810,9 @@
             } else {
               softResetUI();
             }
+          } else if (e.key === "Delete" || e.key === "Del") {
+            e.preventDefault();
+            deleteSelectedTransactions();
           }
         });
       }
@@ -810,15 +1012,18 @@
           const li = document.createElement("li");
           li.className = "transaction-item";
           li.innerHTML = `
-            <div class="flex-1">
-              <p class="font-semibold text-gray-900">${t.description}</p>
-              <p class="text-sm text-gray-600">
-                ${t.type === "expense" ? t.category + ", " : ""}
-                <time datetime="${t.date}" title="${t.date}">
-                  ${new Date(t.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                </time>
-                ${t.recurring && t.recurring !== "none" ? ` • Recurring: ${t.recurring}` : ''}
-              </p>
+            <div class="flex items-center flex-1">
+              <input type="checkbox" class="transaction-checkbox" data-id="${t.id}" />
+              <div class="flex-1">
+                <p class="font-semibold text-gray-900">${t.description}</p>
+                <p class="text-sm text-gray-600">
+                  ${t.type === "expense" ? t.category + ", " : ""}
+                  <time datetime="${t.date}" title="${t.date}">
+                    ${new Date(t.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </time>
+                  ${t.recurring && t.recurring !== "none" ? ` • Recurring: ${t.recurring}` : ''}
+                </p>
+              </div>
             </div>
             <div class="text-right">
               <p class="${t.type === "income" ? "text-green" : "text-red"} font-bold">
@@ -832,6 +1037,17 @@
           `;
           transactionListEl.appendChild(li);
         });
+
+        // Add event listeners for checkboxes
+        document.querySelectorAll('.transaction-checkbox').forEach(checkbox => {
+          checkbox.addEventListener('change', (e) => {
+            toggleTransactionSelection(e.target.dataset.id, e.target.checked);
+          });
+        });
+
+        // Update visual states
+        updateTransactionItemStyles();
+        updateMultipleDeleteControls();
       }
 
       // Get filtered transactions
@@ -867,6 +1083,8 @@
 
       // Filter and render
       function filterAndRender() {
+        // Clear selections when filters change
+        deselectAllTransactions();
         renderTransactions(getFilteredTransactions());
       }
 
@@ -1026,10 +1244,12 @@
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
 
-      // Delete transaction
+      // Delete single transaction
       function deleteTransaction(id) {
         if (!confirm("Are you sure you want to delete this transaction?")) return;
         transactions = transactions.filter(t => t.id !== id);
+        // Remove from selection if it was selected
+        selectedTransactions.delete(id);
         showMessage("Transaction deleted successfully!", "success");
         updateUI();
       }
@@ -1054,6 +1274,7 @@
         setupNewTaskMenu();
         setupQuickRefreshBtn();
         setupRefreshShortcuts();
+        setupMultipleDeleteEvents();
 
         // Event listeners
         form.addEventListener("submit", handleTransaction);
